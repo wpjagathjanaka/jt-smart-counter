@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>JT TECH SMART COUNTER</title>
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#111827;color:#e8eefc;padding:16px;padding-top:max(16px,env(safe-area-inset-top));padding-bottom:max(16px,env(safe-area-inset-bottom));padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right));}.container{max-width:500px;margin:auto;background:#1a2544;padding:20px;border-radius:18px;border:1px solid #3b4d7a;box-shadow:0 10px 25px rgba(0,0,0,0.4);}h2{text-align:center;color:#fff;font-size:20px;margin-bottom:18px;margin-top:5px;font-weight:700;}label{display:block;color:#a5b4fc;font-size:13px;margin-bottom:6px;font-weight:600;}input{width:100%;padding:12px;border-radius:10px;border:1px solid #475569;background:#0f172a;color:white;font-size:16px;margin-bottom:14px;-webkit-appearance:none;outline:none;}input:focus{border-color:#38bdf8;}button{width:100%;border:0;border-radius:10px;padding:14px;background:#315bd6;color:white;cursor:pointer;font-weight:bold;font-size:15px;margin-top:8px;-webkit-appearance:none;transition:opacity 0.2s;}button:active{opacity:0.8;}button.green{background:#16834b;}button.report{background:#22c55e;color:#0b1020;font-size:16px;margin-top:18px;font-weight:bold;}.grid{display:flex;gap:10px;margin:12px 0;}.card{flex:1;background:#0f172a;padding:14px;border-radius:12px;text-align:center;border:1px solid #334155;}.card span{font-size:24px;font-weight:bold;color:#38bdf8;display:block;margin-top:4px;}.count-box{font-size:42px;font-weight:bold;color:#22c55e;text-align:center;background:#0f172a;padding:14px;border-radius:12px;margin:14px 0;border:1px solid #334155;}.status{text-align:center;font-size:13px;margin-top:12px;color:#ef4444;font-weight:500;}.status.on{color:#22c55e;}
+</style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Smart Counter Dashboard</h2>
+    
+    <label>Device ID</label>
+    <input id="deviceId" value="Public Toilet Gent" autocomplete="off" autocorrect="off">
+
+    <button onclick="connectMQTT()" class="green">CONNECT TO CLOUD</button>
+
+    <div class="grid">
+        <div class="card">
+            <label>Man</label>
+            <span id="count1">0</span>
+        </div>
+        <div class="card">
+            <label>Women</label>
+            <span id="count2">0</span>
+        </div>
+    </div>
+
+    <label style="text-align:center; margin-top:12px;">Total Visitors</label>
+    <div class="count-box" id="count">0</div>
+
+    <button onclick="getInstantReport()" class="report">GET INSTANT EMAIL REPORT</button>
+
+    <div id="statusText" class="status">Cloud Connected (Waiting for Device...)</div>
+</div>
+
+<script>
+// Right-click සහ Inspect Shortcuts වැළැක්වීමේ ආරක්ෂාව
+document.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+document.onkeydown = function(e) {
+    if (e.keyCode == 123 || (e.ctrlKey && e.shiftKey && (e.keyCode == 73 || e.keyCode == 74)) || (e.ctrlKey && e.keyCode == 85)) {
+        return false;
+    }
+};
+
+let client = null;
+let stateTopic = "";
+let commandTopic = "";
+let lastMessageTime = 0;
+
+function connectMQTT(){
+    if(client){ client.end(true); }
+
+    let deviceId = document.getElementById("deviceId").value.trim();
+    stateTopic = "jttech/smartcounter/" + deviceId + "/state";
+    commandTopic = "jttech/smartcounter/" + deviceId + "/command";
+
+    let host = "w1007f0a.ala.asia-southeast1.emqxsl.com";
+    let port = 8084;
+    let url = "wss://" + host + ":" + port + "/mqtt";
+    let clientId = "web_" + Math.random().toString(16).substring(2, 8);
+
+    client = mqtt.connect(url, {
+        clientId: clientId,
+        username: "jttechsolutions",
+        password: "Jm@7811255475",
+        clean: true,
+        reconnectPeriod: 3000
+    });
+
+    client.on("connect", function(){
+        document.getElementById("statusText").textContent = "Cloud Connected (Waiting for Device Data...)";
+        document.getElementById("statusText").className = "status";
+        client.subscribe(stateTopic, {qos: 1});
+    });
+
+    client.on("close", function(){
+        document.getElementById("statusText").textContent = "Disconnected";
+        document.getElementById("statusText").className = "status";
+        lastMessageTime = 0;
+    });
+
+    client.on("message", function(topic, payload){
+        if(topic === stateTopic){
+            try{
+                let data = JSON.parse(payload.toString());
+                if(data.count !== undefined){
+                    lastMessageTime = Date.now();
+                    document.getElementById("count").textContent = data.count;
+                    document.getElementById("count1").textContent = data.count1 !== undefined ? data.count1 : 0;
+                    document.getElementById("count2").textContent = data.count2 !== undefined ? data.count2 : 0;
+                    
+                    document.getElementById("statusText").textContent = "Device Online & Connected";
+                    document.getElementById("statusText").className = "status on";
+                }
+            }catch(e){}
+        }
+    });
+}
+
+setInterval(function(){
+    if(client && client.connected && lastMessageTime > 0){
+        if(Date.now() - lastMessageTime > 15000){
+            document.getElementById("statusText").textContent = "Device Offline / Disconnected";
+            document.getElementById("statusText").className = "status";
+        }
+    }
+}, 3000);
+
+function getInstantReport(){
+    if(!client || !client.connected){
+        alert("Palamu Cloud ekata Connect wanna!");
+        return;
+    }
+    client.publish(commandTopic, "GET_INSTANT_REPORT", {qos: 1}, function(err){
+        if(!err){
+            alert("Instant Email Report Sent Successfully!");
+        } else {
+            alert("Failed to send request!");
+        }
+    });
+}
+</script>
+
+</body>
+</html>
